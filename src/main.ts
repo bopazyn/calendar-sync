@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import {
   buildGoogleAuthorizeUrl,
+  createGoogleCalendarEvent,
+  ensureGoogleCalendar,
   exchangeGoogleCodeForToken,
   fetchGoogleCalendarEvents,
   fetchGoogleCalendars,
@@ -12,6 +14,30 @@ import {
   fetchMicrosoftTodoListsWithTasks,
 } from "./microsoft.ts";
 import { createPkce, toBase64Url } from "./oauth.ts";
+
+function buildEventTimesFromTaskDue(task: { dueDateTime?: { dateTime: string; timeZone?: string } }) {
+  if (!task.dueDateTime?.dateTime) {
+    return null;
+  }
+
+  const startDate = new Date(task.dueDateTime.dateTime);
+  if (Number.isNaN(startDate.getTime())) {
+    return null;
+  }
+
+  const endDate = new Date(startDate.getTime() + 30 * 60 * 1000);
+
+  return {
+    start: {
+      dateTime: startDate.toISOString(),
+      timeZone: task.dueDateTime.timeZone || "UTC",
+    },
+    end: {
+      dateTime: endDate.toISOString(),
+      timeZone: task.dueDateTime.timeZone || "UTC",
+    },
+  };
+}
 
 async function waitForOAuthCodeWithServer(params: {
   port: number;
@@ -151,7 +177,7 @@ async function main() {
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
   const googleScopes = (
     process.env.GOOGLE_SCOPES ??
-    "https://www.googleapis.com/auth/calendar.readonly"
+    "https://www.googleapis.com/auth/calendar"
   ).trim();
   const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI ?? baseUrl;
 
@@ -211,6 +237,41 @@ async function main() {
       console.log(`  - ${event.summary ?? "(bez tytułu)"} [${event.status ?? "unknown"}] @ ${start}`);
     }
   }
+
+  const microsoftTodoCalendar = await ensureGoogleCalendar(googleToken.access_token, "Microsoft TODO");
+  console.log(`\nKalendarz docelowy: ${microsoftTodoCalendar.summary} (${microsoftTodoCalendar.id})`);
+
+  let createdEvents = 0;
+  let skippedTasksWithoutDue = 0;
+  let skippedTasksInvalidDue = 0;
+
+  for (const { list, tasks } of todoLists) {
+    for (const task of tasks) {
+      if (!task.dueDateTime) {
+        skippedTasksWithoutDue += 1;
+        continue;
+      }
+
+      const eventTimes = buildEventTimesFromTaskDue(task);
+      if (!eventTimes) {
+        skippedTasksInvalidDue += 1;
+        console.warn(`Pomijam zadanie z nieprawidłowym terminem: ${task.title} (${task.id})`);
+        continue;
+      }
+
+      await createGoogleCalendarEvent(googleToken.access_token, microsoftTodoCalendar.id, {
+        summary: task.title,
+        description: `Microsoft To Do\nLista: ${list.displayName}\nTask ID: ${task.id}`,
+        start: eventTimes.start,
+        end: eventTimes.end,
+      });
+      createdEvents += 1;
+    }
+  }
+
+  console.log(
+    `\nUtworzono wydarzenia: ${createdEvents}. Pominięto bez terminu: ${skippedTasksWithoutDue}. Pominięto z błędnym terminem: ${skippedTasksInvalidDue}.`,
+  );
 }
 
 main().catch((error) => {

@@ -28,6 +28,21 @@ export type GoogleCalendarEvent = {
   };
 };
 
+export type GoogleCalendarInsertEvent = {
+  summary: string;
+  description?: string;
+  start: {
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
+  };
+  end: {
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
+  };
+};
+
 export function buildGoogleAuthorizeUrl(params: {
   clientId: string;
   redirectUri: string;
@@ -118,6 +133,25 @@ async function googleGet<T>(path: string, accessToken: string) {
   throw new Error(`Google API request failed after retries for ${path}`);
 }
 
+async function googlePost<T>(path: string, accessToken: string, body: unknown) {
+  const res = await fetch(`https://www.googleapis.com${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(`Google API request failed: ${res.status} ${JSON.stringify(data)}`);
+  }
+
+  return data as T;
+}
+
 export async function fetchGoogleCalendars(accessToken: string) {
   const items: GoogleCalendarListEntry[] = [];
   let pageToken: string | undefined;
@@ -138,6 +172,24 @@ export async function fetchGoogleCalendars(accessToken: string) {
   } while (pageToken);
 
   return items;
+}
+
+export async function createGoogleCalendar(accessToken: string, summary: string) {
+  return await googlePost<GoogleCalendarListEntry>(
+    "/calendar/v3/calendars",
+    accessToken,
+    { summary },
+  );
+}
+
+export async function ensureGoogleCalendar(accessToken: string, summary: string) {
+  const calendars = await fetchGoogleCalendars(accessToken);
+  const existing = calendars.find((calendar) => calendar.summary === summary);
+  if (existing) {
+    return existing;
+  }
+
+  return await createGoogleCalendar(accessToken, summary);
 }
 
 export async function fetchGoogleCalendarEvents(accessToken: string, calendarId: string) {
@@ -163,4 +215,16 @@ export async function fetchGoogleCalendarEvents(accessToken: string, calendarId:
   } while (pageToken);
 
   return items;
+}
+
+export async function createGoogleCalendarEvent(
+  accessToken: string,
+  calendarId: string,
+  event: GoogleCalendarInsertEvent,
+) {
+  return await googlePost<GoogleCalendarEvent>(
+    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+    accessToken,
+    event,
+  );
 }

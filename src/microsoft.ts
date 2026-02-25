@@ -14,6 +14,10 @@ export type TodoTask = {
   id: string;
   title: string;
   status?: string;
+  dueDateTime?: {
+    dateTime: string;
+    timeZone?: string;
+  };
 };
 
 export type TodoListWithTasks = {
