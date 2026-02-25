@@ -248,6 +248,57 @@ async function googlePatch<T>(path: string, accessToken: string, body: unknown) 
   throw new Error(`Google API request failed after retries for ${path}`);
 }
 
+async function googleDelete(path: string, accessToken: string) {
+  const maxAttempts = 7;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(`https://www.googleapis.com${path}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+    });
+
+    if (res.ok) {
+      return;
+    }
+
+    let data: unknown = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+
+    const googleError = data as GoogleApiErrorResponse;
+    const reasons = new Set((googleError?.error?.errors ?? []).map((error) => error.reason));
+    const isRateLimited = res.status === 429 ||
+      reasons.has("rateLimitExceeded") ||
+      reasons.has("userRateLimitExceeded");
+
+    if ((isRateLimited || res.status >= 500) && attempt < maxAttempts) {
+      const retryAfterHeader = res.headers.get("retry-after");
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+      const jitterMs = Math.floor(Math.random() * 300);
+      const waitMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? retryAfterSeconds * 1000
+        : attempt * 2000 + jitterMs;
+
+      console.warn(
+        `Google API throttling/error (${res.status}) for ${path}. Retry ${attempt}/${maxAttempts - 1} in ${waitMs}ms.`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      continue;
+    }
+
+    throw new Error(`Google API request failed: ${res.status} ${JSON.stringify(data)}`);
+  }
+
+  throw new Error(`Google API request failed after retries for ${path}`);
+}
+
 export async function fetchGoogleCalendars(accessToken: string) {
   const items: GoogleCalendarListEntry[] = [];
   let pageToken: string | undefined;
@@ -335,5 +386,16 @@ export async function updateGoogleCalendarEvent(
     `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     accessToken,
     event,
+  );
+}
+
+export async function deleteGoogleCalendarEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+) {
+  await googleDelete(
+    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    accessToken,
   );
 }

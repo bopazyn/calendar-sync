@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import {
   buildGoogleAuthorizeUrl,
   createGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
   ensureGoogleCalendar,
   exchangeGoogleCodeForToken,
   fetchGoogleCalendarEvents,
@@ -299,12 +300,28 @@ async function main() {
 
   let createdEvents = 0;
   let updatedEvents = 0;
+  let deletedEvents = 0;
   let unchangedEvents = 0;
   let skippedTasksWithoutDue = 0;
   let skippedTasksInvalidDue = 0;
 
   for (const { list, tasks } of todoLists) {
     for (const task of tasks) {
+      const existingEvent = existingEventsByTaskId.get(task.id);
+
+      if (task.status === "completed") {
+        if (existingEvent) {
+          await deleteGoogleCalendarEvent(
+            googleToken.access_token,
+            microsoftTodoCalendar.id,
+            existingEvent.id,
+          );
+          existingEventsByTaskId.delete(task.id);
+          deletedEvents += 1;
+        }
+        continue;
+      }
+
       if (!task.dueDateTime) {
         skippedTasksWithoutDue += 1;
         continue;
@@ -319,8 +336,6 @@ async function main() {
 
       const desiredSummary = buildEventSummary(list.displayName, task.title);
       const desiredDescription = `Microsoft To Do\nLista: ${list.displayName}\nTask ID: ${task.id}`;
-      const existingEvent = existingEventsByTaskId.get(task.id);
-
       if (existingEvent) {
         if (
           !eventNeedsUpdate({
@@ -369,7 +384,7 @@ async function main() {
   }
 
   console.log(
-    `\nUtworzono wydarzenia: ${createdEvents}. Zaktualizowano: ${updatedEvents}. Bez zmian: ${unchangedEvents}. Pominięto bez terminu: ${skippedTasksWithoutDue}. Pominięto z błędnym terminem: ${skippedTasksInvalidDue}.`,
+    `\nUtworzono wydarzenia: ${createdEvents}. Zaktualizowano: ${updatedEvents}. Usunięto: ${deletedEvents}. Bez zmian: ${unchangedEvents}. Pominięto bez terminu: ${skippedTasksWithoutDue}. Pominięto z błędnym terminem: ${skippedTasksInvalidDue}.`,
   );
 }
 
