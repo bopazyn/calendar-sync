@@ -15,6 +15,7 @@ export type GoogleCalendarListEntry = {
 export type GoogleCalendarEvent = {
   id: string;
   summary?: string;
+  description?: string;
   status?: string;
   start?: {
     date?: string;

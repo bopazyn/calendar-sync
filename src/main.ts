@@ -39,6 +39,15 @@ function buildEventTimesFromTaskDue(task: { dueDateTime?: { dateTime: string; ti
   };
 }
 
+function extractTaskIdFromEventDescription(description?: string) {
+  if (!description) {
+    return null;
+  }
+
+  const match = description.match(/Task ID:\s*(.+)/);
+  return match?.[1]?.trim() || null;
+}
+
 async function waitForOAuthCodeWithServer(params: {
   port: number;
   host: string;
@@ -241,9 +250,20 @@ async function main() {
   const microsoftTodoCalendar = await ensureGoogleCalendar(googleToken.access_token, "Microsoft TODO");
   console.log(`\nKalendarz docelowy: ${microsoftTodoCalendar.summary} (${microsoftTodoCalendar.id})`);
 
+  const existingTodoEvents = await fetchGoogleCalendarEvents(
+    googleToken.access_token,
+    microsoftTodoCalendar.id,
+  );
+  const existingTaskIds = new Set(
+    existingTodoEvents
+      .map((event) => extractTaskIdFromEventDescription(event.description))
+      .filter((taskId): taskId is string => Boolean(taskId)),
+  );
+
   let createdEvents = 0;
   let skippedTasksWithoutDue = 0;
   let skippedTasksInvalidDue = 0;
+  let skippedTasksDuplicate = 0;
 
   for (const { list, tasks } of todoLists) {
     for (const task of tasks) {
@@ -259,18 +279,24 @@ async function main() {
         continue;
       }
 
+      if (existingTaskIds.has(task.id)) {
+        skippedTasksDuplicate += 1;
+        continue;
+      }
+
       await createGoogleCalendarEvent(googleToken.access_token, microsoftTodoCalendar.id, {
         summary: task.title,
         description: `Microsoft To Do\nLista: ${list.displayName}\nTask ID: ${task.id}`,
         start: eventTimes.start,
         end: eventTimes.end,
       });
+      existingTaskIds.add(task.id);
       createdEvents += 1;
     }
   }
 
   console.log(
-    `\nUtworzono wydarzenia: ${createdEvents}. Pominięto bez terminu: ${skippedTasksWithoutDue}. Pominięto z błędnym terminem: ${skippedTasksInvalidDue}.`,
+    `\nUtworzono wydarzenia: ${createdEvents}. Pominięto duplikaty: ${skippedTasksDuplicate}. Pominięto bez terminu: ${skippedTasksWithoutDue}. Pominięto z błędnym terminem: ${skippedTasksInvalidDue}.`,
   );
 }
 
