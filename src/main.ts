@@ -7,6 +7,7 @@ import {
   exchangeGoogleCodeForToken,
   fetchGoogleCalendarEvents,
   fetchGoogleCalendars,
+  updateGoogleCalendarEvent,
 } from "./google.ts";
 import {
   buildMicrosoftAuthorizeUrl,
@@ -46,6 +47,39 @@ function extractTaskIdFromEventDescription(description?: string) {
 
   const match = description.match(/Task ID:\s*(.+)/);
   return match?.[1]?.trim() || null;
+}
+
+function buildEventSummary(listName: string, taskTitle: string) {
+  return `[${listName}] ${taskTitle}`;
+}
+
+function toTimestamp(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+function eventNeedsUpdate(params: {
+  currentSummary?: string;
+  desiredSummary: string;
+  currentStartDateTime?: string;
+  currentEndDateTime?: string;
+  desiredStartDateTime?: string;
+  desiredEndDateTime?: string;
+}) {
+  if (params.currentSummary !== params.desiredSummary) {
+    return true;
+  }
+
+  const currentStart = toTimestamp(params.currentStartDateTime);
+  const currentEnd = toTimestamp(params.currentEndDateTime);
+  const desiredStart = toTimestamp(params.desiredStartDateTime);
+  const desiredEnd = toTimestamp(params.desiredEndDateTime);
+
+  return currentStart !== desiredStart || currentEnd !== desiredEnd;
 }
 
 async function waitForOAuthCodeWithServer(params: {
@@ -254,16 +288,20 @@ async function main() {
     googleToken.access_token,
     microsoftTodoCalendar.id,
   );
-  const existingTaskIds = new Set(
+  const existingEventsByTaskId = new Map(
     existingTodoEvents
-      .map((event) => extractTaskIdFromEventDescription(event.description))
-      .filter((taskId): taskId is string => Boolean(taskId)),
+      .map((event) => {
+        const taskId = extractTaskIdFromEventDescription(event.description);
+        return taskId ? [taskId, event] as const : null;
+      })
+      .filter((entry): entry is readonly [string, (typeof existingTodoEvents)[number]] => Boolean(entry)),
   );
 
   let createdEvents = 0;
+  let updatedEvents = 0;
+  let unchangedEvents = 0;
   let skippedTasksWithoutDue = 0;
   let skippedTasksInvalidDue = 0;
-  let skippedTasksDuplicate = 0;
 
   for (const { list, tasks } of todoLists) {
     for (const task of tasks) {
@@ -279,24 +317,59 @@ async function main() {
         continue;
       }
 
-      if (existingTaskIds.has(task.id)) {
-        skippedTasksDuplicate += 1;
+      const desiredSummary = buildEventSummary(list.displayName, task.title);
+      const desiredDescription = `Microsoft To Do\nLista: ${list.displayName}\nTask ID: ${task.id}`;
+      const existingEvent = existingEventsByTaskId.get(task.id);
+
+      if (existingEvent) {
+        if (
+          !eventNeedsUpdate({
+            currentSummary: existingEvent.summary,
+            desiredSummary,
+            currentStartDateTime: existingEvent.start?.dateTime,
+            currentEndDateTime: existingEvent.end?.dateTime,
+            desiredStartDateTime: eventTimes.start.dateTime,
+            desiredEndDateTime: eventTimes.end.dateTime,
+          })
+        ) {
+          unchangedEvents += 1;
+          continue;
+        }
+
+        await updateGoogleCalendarEvent(
+          googleToken.access_token,
+          microsoftTodoCalendar.id,
+          existingEvent.id,
+          {
+            summary: desiredSummary,
+            description: desiredDescription,
+            start: eventTimes.start,
+            end: eventTimes.end,
+          },
+        );
+        updatedEvents += 1;
         continue;
       }
 
       await createGoogleCalendarEvent(googleToken.access_token, microsoftTodoCalendar.id, {
-        summary: task.title,
-        description: `Microsoft To Do\nLista: ${list.displayName}\nTask ID: ${task.id}`,
+        summary: desiredSummary,
+        description: desiredDescription,
         start: eventTimes.start,
         end: eventTimes.end,
       });
-      existingTaskIds.add(task.id);
+      existingEventsByTaskId.set(task.id, {
+        id: task.id,
+        summary: desiredSummary,
+        description: desiredDescription,
+        start: eventTimes.start,
+        end: eventTimes.end,
+      });
       createdEvents += 1;
     }
   }
 
   console.log(
-    `\nUtworzono wydarzenia: ${createdEvents}. Pominięto duplikaty: ${skippedTasksDuplicate}. Pominięto bez terminu: ${skippedTasksWithoutDue}. Pominięto z błędnym terminem: ${skippedTasksInvalidDue}.`,
+    `\nUtworzono wydarzenia: ${createdEvents}. Zaktualizowano: ${updatedEvents}. Bez zmian: ${unchangedEvents}. Pominięto bez terminu: ${skippedTasksWithoutDue}. Pominięto z błędnym terminem: ${skippedTasksInvalidDue}.`,
   );
 }
 
