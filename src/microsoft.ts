@@ -25,14 +25,14 @@ export type TodoListWithTasks = {
   tasks: TodoTask[];
 };
 
-export function buildMicrosoftAuthorizeUrl(params: {
+export const buildMicrosoftAuthorizeUrl = (params: {
   tenant: string;
   clientId: string;
   redirectUri: string;
   scope: string;
   challenge: string;
   state: string;
-}) {
+}) => {
   const url = new URL(`https://login.microsoftonline.com/${params.tenant}/oauth2/v2.0/authorize`);
   url.searchParams.set("client_id", params.clientId);
   url.searchParams.set("response_type", "code");
@@ -43,9 +43,9 @@ export function buildMicrosoftAuthorizeUrl(params: {
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("state", params.state);
   return url;
-}
+};
 
-export async function exchangeMicrosoftCodeForToken(params: {
+export const exchangeMicrosoftCodeForToken = async (params: {
   authorizationCode: string;
   clientId: string;
   tenant: string;
@@ -53,7 +53,7 @@ export async function exchangeMicrosoftCodeForToken(params: {
   codeVerifier: string;
   scope: string;
   clientSecret: string;
-}) {
+}) => {
   const tokenUrl = `https://login.microsoftonline.com/${params.tenant}/oauth2/v2.0/token`;
 
   const body = new URLSearchParams({
@@ -80,9 +80,9 @@ export async function exchangeMicrosoftCodeForToken(params: {
   }
 
   return data as TokenResponse;
-}
+};
 
-async function graphGet<T>(path: string, accessToken: string) {
+const graphGet = async <T>(path: string, accessToken: string) => {
   const maxAttempts = 5;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -118,9 +118,9 @@ async function graphGet<T>(path: string, accessToken: string) {
   }
 
   throw new Error(`Graph request failed after retries for ${path}`);
-}
+};
 
-export async function fetchMicrosoftTodoListsWithTasks(accessToken: string) {
+export const fetchMicrosoftTodoListsWithTasks = async (accessToken: string) => {
   const lists = await graphGet<GraphListResponse<TodoTaskList>>("/me/todo/lists", accessToken);
 
   const tasksByList: TodoListWithTasks[] = [];
@@ -133,4 +133,4 @@ export async function fetchMicrosoftTodoListsWithTasks(accessToken: string) {
   }
 
   return tasksByList;
-}
+};

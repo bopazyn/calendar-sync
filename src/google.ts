@@ -1,4 +1,4 @@
-import type { TokenResponse } from "./oauth.ts";
+import type {TokenResponse} from "./oauth.ts";
 
 type GooglePagedResponse<T> = {
   items?: T[];
@@ -58,13 +58,13 @@ export type GoogleCalendarInsertEvent = {
 
 export type GoogleCalendarUpdateEvent = Partial<GoogleCalendarInsertEvent>;
 
-export function buildGoogleAuthorizeUrl(params: {
+export const buildGoogleAuthorizeUrl = (params: {
   clientId: string;
   redirectUri: string;
   scope: string;
   challenge: string;
   state: string;
-}) {
+}) => {
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", params.clientId);
   url.searchParams.set("response_type", "code");
@@ -76,15 +76,15 @@ export function buildGoogleAuthorizeUrl(params: {
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
   return url;
-}
+};
 
-export async function exchangeGoogleCodeForToken(params: {
+export const exchangeGoogleCodeForToken = async (params: {
   authorizationCode: string;
   clientId: string;
   clientSecret: string;
   redirectUri: string;
   codeVerifier: string;
-}) {
+}) => {
   const body = new URLSearchParams({
     client_id: params.clientId,
     client_secret: params.clientSecret,
@@ -108,9 +108,9 @@ export async function exchangeGoogleCodeForToken(params: {
   }
 
   return data as TokenResponse;
-}
+};
 
-async function googleGet<T>(path: string, accessToken: string) {
+const googleGet = async <T>(path: string, accessToken: string) => {
   const maxAttempts = 5;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -152,9 +152,9 @@ async function googleGet<T>(path: string, accessToken: string) {
   }
 
   throw new Error(`Google API request failed after retries for ${path}`);
-}
+};
 
-async function googlePost<T>(path: string, accessToken: string, body: unknown) {
+const googlePost = async <T>(path: string, accessToken: string, body: unknown) => {
   const maxAttempts = 7;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -199,9 +199,9 @@ async function googlePost<T>(path: string, accessToken: string, body: unknown) {
   }
 
   throw new Error(`Google API request failed after retries for ${path}`);
-}
+};
 
-async function googlePatch<T>(path: string, accessToken: string, body: unknown) {
+const googlePatch = async <T>(path: string, accessToken: string, body: unknown) => {
   const maxAttempts = 7;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -246,9 +246,9 @@ async function googlePatch<T>(path: string, accessToken: string, body: unknown) 
   }
 
   throw new Error(`Google API request failed after retries for ${path}`);
-}
+};
 
-async function googleDelete(path: string, accessToken: string) {
+const googleDelete = async (path: string, accessToken: string) => {
   const maxAttempts = 7;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -297,9 +297,9 @@ async function googleDelete(path: string, accessToken: string) {
   }
 
   throw new Error(`Google API request failed after retries for ${path}`);
-}
+};
 
-export async function fetchGoogleCalendars(accessToken: string) {
+export const fetchGoogleCalendars = async (accessToken: string) => {
   const items: GoogleCalendarListEntry[] = [];
   let pageToken: string | undefined;
 
@@ -319,17 +319,16 @@ export async function fetchGoogleCalendars(accessToken: string) {
   } while (pageToken);
 
   return items;
-}
+};
 
-export async function createGoogleCalendar(accessToken: string, summary: string) {
-  return await googlePost<GoogleCalendarListEntry>(
+export const createGoogleCalendar = async (accessToken: string, summary: string) =>
+  await googlePost<GoogleCalendarListEntry>(
     "/calendar/v3/calendars",
     accessToken,
-    { summary },
+    {summary},
   );
-}
 
-export async function ensureGoogleCalendar(accessToken: string, summary: string) {
+export const ensureGoogleCalendar = async (accessToken: string, summary: string) => {
   const calendars = await fetchGoogleCalendars(accessToken);
   const existing = calendars.find((calendar) => calendar.summary === summary);
   if (existing) {
@@ -337,9 +336,9 @@ export async function ensureGoogleCalendar(accessToken: string, summary: string)
   }
 
   return await createGoogleCalendar(accessToken, summary);
-}
+};
 
-export async function fetchGoogleCalendarEvents(accessToken: string, calendarId: string) {
+export const fetchGoogleCalendarEvents = async (accessToken: string, calendarId: string) => {
   const items: GoogleCalendarEvent[] = [];
   let pageToken: string | undefined;
 
@@ -362,40 +361,36 @@ export async function fetchGoogleCalendarEvents(accessToken: string, calendarId:
   } while (pageToken);
 
   return items;
-}
+};
 
-export async function createGoogleCalendarEvent(
+export const createGoogleCalendarEvent = async (
   accessToken: string,
   calendarId: string,
   event: GoogleCalendarInsertEvent,
-) {
-  return await googlePost<GoogleCalendarEvent>(
-    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-    accessToken,
-    event,
-  );
-}
+) => await googlePost<GoogleCalendarEvent>(
+  `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+  accessToken,
+  event,
+);
 
-export async function updateGoogleCalendarEvent(
+export const updateGoogleCalendarEvent = async (
   accessToken: string,
   calendarId: string,
   eventId: string,
   event: GoogleCalendarUpdateEvent,
-) {
-  return await googlePatch<GoogleCalendarEvent>(
-    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    accessToken,
-    event,
-  );
-}
+) => await googlePatch<GoogleCalendarEvent>(
+  `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+  accessToken,
+  event,
+);
 
-export async function deleteGoogleCalendarEvent(
+export const deleteGoogleCalendarEvent = async (
   accessToken: string,
   calendarId: string,
   eventId: string,
-) {
+) => {
   await googleDelete(
     `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     accessToken,
   );
-}
+};

@@ -8,16 +8,14 @@ export type TokenResponse = {
   scope?: string;
 };
 
-export function toBase64Url(buffer: Buffer) {
-  return buffer
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
+export const toBase64Url = (buffer: Buffer) => buffer
+  .toString("base64")
+  .replace(/\+/g, "-")
+  .replace(/\//g, "_")
+  .replace(/=+$/g, "");
 
-export function createPkce() {
+export const createPkce = () => {
   const verifier = toBase64Url(randomBytes(32));
   const challenge = toBase64Url(createHash("sha256").update(verifier).digest());
   return { verifier, challenge };
-}
+};

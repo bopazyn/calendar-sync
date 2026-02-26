@@ -1,5 +1,5 @@
-import { randomBytes } from "node:crypto";
-import { createServer } from "node:http";
+import {randomBytes} from "node:crypto";
+import {createServer} from "node:http";
 import {
   buildGoogleAuthorizeUrl,
   createGoogleCalendarEvent,
@@ -7,7 +7,6 @@ import {
   ensureGoogleCalendar,
   exchangeGoogleCodeForToken,
   fetchGoogleCalendarEvents,
-  fetchGoogleCalendars,
   updateGoogleCalendarEvent,
 } from "./google.ts";
 import {
@@ -15,9 +14,36 @@ import {
   exchangeMicrosoftCodeForToken,
   fetchMicrosoftTodoListsWithTasks,
 } from "./microsoft.ts";
-import { createPkce, toBase64Url } from "./oauth.ts";
+import {createPkce, toBase64Url} from "./oauth.ts";
+import {z} from "zod";
 
-function buildEventTimesFromTaskDue(task: { dueDateTime?: { dateTime: string; timeZone?: string } }) {
+const configurationSchema = z.object({
+  port: z.coerce.number().default(3000),
+  ms: z.object({
+    tenant: z.string().default("common"),
+    clientId: z.string(),
+    clientSecret: z.string(),
+  }),
+  google: z.object({
+    clientId: z.string(),
+    clientSecret: z.string(),
+  }),
+});
+
+const configuration = configurationSchema.parse({
+  port: process.env.PORT,
+  ms: {
+    tenant: process.env.MS_TENANT,
+    clientId: process.env.MS_CLIENT_ID,
+    clientSecret: process.env.MS_CLIENT_SECRET,
+  },
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  },
+})
+
+const buildEventTimesFromTaskDue = (task: { dueDateTime?: { dateTime: string; timeZone?: string } }) => {
   if (!task.dueDateTime?.dateTime) {
     return null;
   }
@@ -39,38 +65,36 @@ function buildEventTimesFromTaskDue(task: { dueDateTime?: { dateTime: string; ti
       timeZone: task.dueDateTime.timeZone || "UTC",
     },
   };
-}
+};
 
-function extractTaskIdFromEventDescription(description?: string) {
+const extractTaskIdFromEventDescription = (description?: string) => {
   if (!description) {
     return null;
   }
 
   const match = description.match(/Task ID:\s*(.+)/);
   return match?.[1]?.trim() || null;
-}
+};
 
-function buildEventSummary(listName: string, taskTitle: string) {
-  return `[${listName}] ${taskTitle}`;
-}
+const buildEventSummary = (listName: string, taskTitle: string) => `[${listName}] ${taskTitle}`;
 
-function toTimestamp(value?: string) {
+const toTimestamp = (value?: string) => {
   if (!value) {
     return null;
   }
 
   const time = new Date(value).getTime();
   return Number.isNaN(time) ? null : time;
-}
+};
 
-function eventNeedsUpdate(params: {
+const eventNeedsUpdate = (params: {
   currentSummary?: string;
   desiredSummary: string;
   currentStartDateTime?: string;
   currentEndDateTime?: string;
   desiredStartDateTime?: string;
   desiredEndDateTime?: string;
-}) {
+}) => {
   if (params.currentSummary !== params.desiredSummary) {
     return true;
   }
@@ -81,15 +105,15 @@ function eventNeedsUpdate(params: {
   const desiredEnd = toTimestamp(params.desiredEndDateTime);
 
   return currentStart !== desiredStart || currentEnd !== desiredEnd;
-}
+};
 
-async function waitForOAuthCodeWithServer(params: {
+const waitForOAuthCodeWithServer = async (params: {
   port: number;
   host: string;
   baseUrl: string;
   state: string;
   providerName: string;
-}) {
+}) => {
   let handled = false;
 
   return await new Promise<string>((resolve, reject) => {
@@ -103,7 +127,7 @@ async function waitForOAuthCodeWithServer(params: {
         const returnedState = url.searchParams.get("state");
 
         if (error) {
-          res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+          res.writeHead(400, {"Content-Type": "text/plain; charset=utf-8"});
           res.end(`${params.providerName} login error: ${error}\n${errorDescription ?? ""}`);
           server.close();
           reject(new Error(`${params.providerName} OAuth error: ${error} ${errorDescription ?? ""}`));
@@ -111,19 +135,19 @@ async function waitForOAuthCodeWithServer(params: {
         }
 
         if (!code) {
-          res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+          res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
           res.end("Callback server działa. Otwórz link logowania z konsoli.");
           return;
         }
 
         if (handled) {
-          res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+          res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
           res.end("Authorization code was already processed.");
           return;
         }
 
         if (returnedState !== params.state) {
-          res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+          res.writeHead(400, {"Content-Type": "text/plain; charset=utf-8"});
           res.end("Invalid OAuth state.");
           server.close();
           reject(new Error(`${params.providerName} OAuth state mismatch.`));
@@ -131,12 +155,12 @@ async function waitForOAuthCodeWithServer(params: {
         }
 
         handled = true;
-        res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+        res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
         res.end(`${params.providerName} login successful. Wróć do konsoli.`);
         server.close();
         resolve(code);
       } catch (error) {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.writeHead(500, {"Content-Type": "text/plain; charset=utf-8"});
         res.end("Internal server error. Check console.");
         server.close();
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -147,34 +171,19 @@ async function waitForOAuthCodeWithServer(params: {
       console.log(`Server started on ${params.baseUrl} (${params.providerName})`);
     });
   });
-}
+};
 
-async function main() {
-  const port = Number(process.env.PORT ?? "3000");
+const main = async () => {
   const host = "127.0.0.1";
-  const baseUrl = `http://localhost:${port}`;
-  const msTenant = process.env.MS_TENANT ?? "common";
-  const msClientId = process.env.MS_CLIENT_ID ?? "";
-  const msClientSecret = process.env.MS_CLIENT_SECRET ?? "";
-  const msScopes = (
-    process.env.MS_SCOPES ??
-    "https://graph.microsoft.com/Tasks.Read offline_access"
-  ).trim();
-  const msRedirectUri = process.env.MS_REDIRECT_URI ?? `${baseUrl}/callback/microsoft`;
-
-  if (!msClientId) {
-    throw new Error("Missing MS_CLIENT_ID in environment (.env).");
-  }
-  if (!msClientSecret) {
-    throw new Error("Missing MS_CLIENT_SECRET in environment (.env).");
-  }
+  const baseUrl = `http://localhost:${configuration.port}`;
+  const msScopes = "https://graph.microsoft.com/Tasks.Read offline_access";
 
   const msPkce = createPkce();
   const msState = toBase64Url(randomBytes(16));
   const msAuthorizeUrl = buildMicrosoftAuthorizeUrl({
-    tenant: msTenant,
-    clientId: msClientId,
-    redirectUri: msRedirectUri,
+    tenant: configuration.ms.tenant,
+    clientId: configuration.ms.clientId,
+    redirectUri: baseUrl,
     scope: msScopes,
     challenge: msPkce.challenge,
     state: msState,
@@ -184,7 +193,7 @@ async function main() {
   console.log(msAuthorizeUrl.toString());
 
   const msCode = await waitForOAuthCodeWithServer({
-    port,
+    port: configuration.port,
     host,
     baseUrl,
     state: msState,
@@ -193,50 +202,25 @@ async function main() {
 
   const msToken = await exchangeMicrosoftCodeForToken({
     authorizationCode: msCode,
-    clientId: msClientId,
-    tenant: msTenant,
-    redirectUri: msRedirectUri,
+    clientId: configuration.ms.clientId,
+    clientSecret: configuration.ms.clientSecret,
+    tenant: configuration.ms.tenant,
+    redirectUri: baseUrl,
     codeVerifier: msPkce.verifier,
     scope: msScopes,
-    clientSecret: msClientSecret,
   });
 
   console.log("Microsoft token expires in (s):", msToken.expires_in);
   console.log("Pobieram listy zadań z Microsoft Graph...");
 
   const todoLists = await fetchMicrosoftTodoListsWithTasks(msToken.access_token);
-  for (const { list, tasks } of todoLists) {
-    console.log(`\nLista: ${list.displayName} (${list.id})`);
-    if (tasks.length === 0) {
-      console.log("  - brak zadań");
-      continue;
-    }
-
-    for (const task of tasks) {
-      console.log(`  - ${task.title} [${task.status ?? "unknown"}]`);
-    }
-  }
-
-  const googleClientId = process.env.GOOGLE_CLIENT_ID ?? "";
-  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
-  const googleScopes = (
-    process.env.GOOGLE_SCOPES ??
-    "https://www.googleapis.com/auth/calendar"
-  ).trim();
-  const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI ?? baseUrl;
-
-  if (!googleClientId) {
-    throw new Error("Missing GOOGLE_CLIENT_ID in environment (.env).");
-  }
-  if (!googleClientSecret) {
-    throw new Error("Missing GOOGLE_CLIENT_SECRET in environment (.env).");
-  }
+  const googleScopes = "https://www.googleapis.com/auth/calendar";
 
   const googlePkce = createPkce();
   const googleState = toBase64Url(randomBytes(16));
   const googleAuthorizeUrl = buildGoogleAuthorizeUrl({
-    clientId: googleClientId,
-    redirectUri: googleRedirectUri,
+    clientId: configuration.google.clientId,
+    redirectUri: baseUrl,
     scope: googleScopes,
     challenge: googlePkce.challenge,
     state: googleState,
@@ -246,7 +230,7 @@ async function main() {
   console.log(googleAuthorizeUrl.toString());
 
   const googleCode = await waitForOAuthCodeWithServer({
-    port,
+    port: configuration.port,
     host,
     baseUrl,
     state: googleState,
@@ -255,35 +239,16 @@ async function main() {
 
   const googleToken = await exchangeGoogleCodeForToken({
     authorizationCode: googleCode,
-    clientId: googleClientId,
-    clientSecret: googleClientSecret,
-    redirectUri: googleRedirectUri,
+    clientId: configuration.google.clientId,
+    clientSecret: configuration.google.clientSecret,
+    redirectUri: baseUrl,
     codeVerifier: googlePkce.verifier,
   });
 
   console.log("Google token expires in (s):", googleToken.expires_in);
   console.log("Pobieram kalendarze i wydarzenia z Google Calendar API...");
 
-  const calendars = await fetchGoogleCalendars(googleToken.access_token);
-  for (const calendar of calendars) {
-    console.log(
-      `\nKalendarz: ${calendar.summary} (${calendar.id})${calendar.primary ? " [primary]" : ""}`,
-    );
-
-    const events = await fetchGoogleCalendarEvents(googleToken.access_token, calendar.id);
-    if (events.length === 0) {
-      console.log("  - brak wydarzeń");
-      continue;
-    }
-
-    for (const event of events) {
-      const start = event.start?.dateTime ?? event.start?.date ?? "brak daty";
-      console.log(`  - ${event.summary ?? "(bez tytułu)"} [${event.status ?? "unknown"}] @ ${start}`);
-    }
-  }
-
   const microsoftTodoCalendar = await ensureGoogleCalendar(googleToken.access_token, "Microsoft TODO");
-  console.log(`\nKalendarz docelowy: ${microsoftTodoCalendar.summary} (${microsoftTodoCalendar.id})`);
 
   const existingTodoEvents = await fetchGoogleCalendarEvents(
     googleToken.access_token,
@@ -305,7 +270,7 @@ async function main() {
   let skippedTasksWithoutDue = 0;
   let skippedTasksInvalidDue = 0;
 
-  for (const { list, tasks } of todoLists) {
+  for (const {list, tasks} of todoLists) {
     for (const task of tasks) {
       const existingEvent = existingEventsByTaskId.get(task.id);
 
@@ -383,10 +348,13 @@ async function main() {
     }
   }
 
-  console.log(
-    `\nUtworzono wydarzenia: ${createdEvents}. Zaktualizowano: ${updatedEvents}. Usunięto: ${deletedEvents}. Bez zmian: ${unchangedEvents}. Pominięto bez terminu: ${skippedTasksWithoutDue}. Pominięto z błędnym terminem: ${skippedTasksInvalidDue}.`,
-  );
-}
+  console.log(`Utworzono wydarzenia: ${createdEvents}`);
+  console.log(`Zaktualizowano: ${updatedEvents}`);
+  console.log(`Usunięto: ${deletedEvents}`);
+  console.log(`Bez zmian: ${unchangedEvents}`);
+  console.log(`Pominięto bez terminu: ${skippedTasksWithoutDue}`);
+  console.log(`Pominięto z błędnym terminem: ${skippedTasksInvalidDue}`);
+};
 
 main().catch((error) => {
   console.error(error);
