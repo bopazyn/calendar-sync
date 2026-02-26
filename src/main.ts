@@ -115,248 +115,242 @@ const waitForOAuthCodeWithServer = async (params: {
   providerName: string;
 }) => {
   let handled = false;
+  const {promise, resolve, reject} = Promise.withResolvers<string>();
 
-  return await new Promise<string>((resolve, reject) => {
-    const server = createServer((req, res) => {
-      try {
-        const url = new URL(req.url ?? "/", params.baseUrl);
+  const server = createServer((req, res) => {
+    try {
+      const url = new URL(req.url ?? "/", params.baseUrl);
 
-        const code = url.searchParams.get("code");
-        const error = url.searchParams.get("error");
-        const errorDescription = url.searchParams.get("error_description");
-        const returnedState = url.searchParams.get("state");
+      const code = url.searchParams.get("code");
+      const error = url.searchParams.get("error");
+      const errorDescription = url.searchParams.get("error_description");
+      const returnedState = url.searchParams.get("state");
 
-        if (error) {
-          res.writeHead(400, {"Content-Type": "text/plain; charset=utf-8"});
-          res.end(`${params.providerName} login error: ${error}\n${errorDescription ?? ""}`);
-          server.close();
-          reject(new Error(`${params.providerName} OAuth error: ${error} ${errorDescription ?? ""}`));
-          return;
-        }
-
-        if (!code) {
-          res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
-          res.end("Callback server działa. Otwórz link logowania z konsoli.");
-          return;
-        }
-
-        if (handled) {
-          res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
-          res.end("Authorization code was already processed.");
-          return;
-        }
-
-        if (returnedState !== params.state) {
-          res.writeHead(400, {"Content-Type": "text/plain; charset=utf-8"});
-          res.end("Invalid OAuth state.");
-          server.close();
-          reject(new Error(`${params.providerName} OAuth state mismatch.`));
-          return;
-        }
-
-        handled = true;
-        res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
-        res.end(`${params.providerName} login successful. Wróć do konsoli.`);
+      if (error) {
+        res.writeHead(400, {"Content-Type": "text/plain; charset=utf-8"});
+        res.end(`${params.providerName} login error: ${error}\n${errorDescription ?? ""}`);
         server.close();
-        resolve(code);
-      } catch (error) {
-        res.writeHead(500, {"Content-Type": "text/plain; charset=utf-8"});
-        res.end("Internal server error. Check console.");
-        server.close();
-        reject(error instanceof Error ? error : new Error(String(error)));
+        reject(new Error(`${params.providerName} OAuth error: ${error} ${errorDescription ?? ""}`));
+        return;
       }
-    });
 
-    server.listen(params.port, params.host, () => {
-      console.log(`Server started on ${params.baseUrl} (${params.providerName})`);
-    });
+      if (!code) {
+        res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
+        res.end("Callback server działa. Otwórz link logowania z konsoli.");
+        return;
+      }
+
+      if (handled) {
+        res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
+        res.end("Authorization code was already processed.");
+        return;
+      }
+
+      if (returnedState !== params.state) {
+        res.writeHead(400, {"Content-Type": "text/plain; charset=utf-8"});
+        res.end("Invalid OAuth state.");
+        server.close();
+        reject(new Error(`${params.providerName} OAuth state mismatch.`));
+        return;
+      }
+
+      handled = true;
+      res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
+      res.end(`${params.providerName} login successful. Wróć do konsoli.`);
+      server.close();
+      resolve(code);
+    } catch (error) {
+      res.writeHead(500, {"Content-Type": "text/plain; charset=utf-8"});
+      res.end("Internal server error. Check console.");
+      server.close();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
+
+  server.listen(params.port, params.host, () => {
+    console.log(`Server started on ${params.baseUrl} (${params.providerName})`);
+  });
+
+  return promise.finally(() => server.close());
 };
 
-const main = async () => {
-  const host = "127.0.0.1";
-  const baseUrl = `http://localhost:${configuration.port}`;
-  const msScopes = "https://graph.microsoft.com/Tasks.Read offline_access";
+const host = "127.0.0.1";
+const baseUrl = `http://localhost:${configuration.port}`;
+const msScopes = "https://graph.microsoft.com/Tasks.Read offline_access";
 
-  const msPkce = createPkce();
-  const msState = toBase64Url(randomBytes(16));
-  const msAuthorizeUrl = buildMicrosoftAuthorizeUrl({
-    tenant: configuration.ms.tenant,
-    clientId: configuration.ms.clientId,
-    redirectUri: baseUrl,
-    scope: msScopes,
-    challenge: msPkce.challenge,
-    state: msState,
-  });
+const msPkce = createPkce();
+const msState = toBase64Url(randomBytes(16));
+const msAuthorizeUrl = buildMicrosoftAuthorizeUrl({
+  tenant: configuration.ms.tenant,
+  clientId: configuration.ms.clientId,
+  redirectUri: baseUrl,
+  scope: msScopes,
+  challenge: msPkce.challenge,
+  state: msState,
+});
 
-  console.log("1) Zaloguj się do Microsoft (To Do):");
-  console.log(msAuthorizeUrl.toString());
+console.log("1) Zaloguj się do Microsoft (To Do):");
+console.log(msAuthorizeUrl.toString());
 
-  const msCode = await waitForOAuthCodeWithServer({
-    port: configuration.port,
-    host,
-    baseUrl,
-    state: msState,
-    providerName: "Microsoft",
-  });
+const msCode = await waitForOAuthCodeWithServer({
+  port: configuration.port,
+  host,
+  baseUrl,
+  state: msState,
+  providerName: "Microsoft",
+});
 
-  const msToken = await exchangeMicrosoftCodeForToken({
-    authorizationCode: msCode,
-    clientId: configuration.ms.clientId,
-    clientSecret: configuration.ms.clientSecret,
-    tenant: configuration.ms.tenant,
-    redirectUri: baseUrl,
-    codeVerifier: msPkce.verifier,
-    scope: msScopes,
-  });
+const msToken = await exchangeMicrosoftCodeForToken({
+  authorizationCode: msCode,
+  clientId: configuration.ms.clientId,
+  clientSecret: configuration.ms.clientSecret,
+  tenant: configuration.ms.tenant,
+  redirectUri: baseUrl,
+  codeVerifier: msPkce.verifier,
+  scope: msScopes,
+});
 
-  console.log("Microsoft token expires in (s):", msToken.expires_in);
-  console.log("Pobieram listy zadań z Microsoft Graph...");
+console.log("Microsoft token expires in (s):", msToken.expires_in);
+console.log("Pobieram listy zadań z Microsoft Graph...");
 
-  const todoLists = await fetchMicrosoftTodoListsWithTasks(msToken.access_token);
-  const googleScopes = "https://www.googleapis.com/auth/calendar";
+const todoLists = await fetchMicrosoftTodoListsWithTasks(msToken.access_token);
+const googleScopes = "https://www.googleapis.com/auth/calendar";
 
-  const googlePkce = createPkce();
-  const googleState = toBase64Url(randomBytes(16));
-  const googleAuthorizeUrl = buildGoogleAuthorizeUrl({
-    clientId: configuration.google.clientId,
-    redirectUri: baseUrl,
-    scope: googleScopes,
-    challenge: googlePkce.challenge,
-    state: googleState,
-  });
+const googlePkce = createPkce();
+const googleState = toBase64Url(randomBytes(16));
+const googleAuthorizeUrl = buildGoogleAuthorizeUrl({
+  clientId: configuration.google.clientId,
+  redirectUri: baseUrl,
+  scope: googleScopes,
+  challenge: googlePkce.challenge,
+  state: googleState,
+});
 
-  console.log("\n2) Zaloguj się do Google Calendar:");
-  console.log(googleAuthorizeUrl.toString());
+console.log("\n2) Zaloguj się do Google Calendar:");
+console.log(googleAuthorizeUrl.toString());
 
-  const googleCode = await waitForOAuthCodeWithServer({
-    port: configuration.port,
-    host,
-    baseUrl,
-    state: googleState,
-    providerName: "Google",
-  });
+const googleCode = await waitForOAuthCodeWithServer({
+  port: configuration.port,
+  host,
+  baseUrl,
+  state: googleState,
+  providerName: "Google",
+});
 
-  const googleToken = await exchangeGoogleCodeForToken({
-    authorizationCode: googleCode,
-    clientId: configuration.google.clientId,
-    clientSecret: configuration.google.clientSecret,
-    redirectUri: baseUrl,
-    codeVerifier: googlePkce.verifier,
-  });
+const googleToken = await exchangeGoogleCodeForToken({
+  authorizationCode: googleCode,
+  clientId: configuration.google.clientId,
+  clientSecret: configuration.google.clientSecret,
+  redirectUri: baseUrl,
+  codeVerifier: googlePkce.verifier,
+});
 
-  console.log("Google token expires in (s):", googleToken.expires_in);
-  console.log("Pobieram kalendarze i wydarzenia z Google Calendar API...");
+console.log("Google token expires in (s):", googleToken.expires_in);
+console.log("Pobieram kalendarze i wydarzenia z Google Calendar API...");
 
-  const microsoftTodoCalendar = await ensureGoogleCalendar(googleToken.access_token, "Microsoft TODO");
+const microsoftTodoCalendar = await ensureGoogleCalendar(googleToken.access_token, "Microsoft TODO");
 
-  const existingTodoEvents = await fetchGoogleCalendarEvents(
-    googleToken.access_token,
-    microsoftTodoCalendar.id,
-  );
-  const existingEventsByTaskId = new Map(
-    existingTodoEvents
-      .map((event) => {
-        const taskId = extractTaskIdFromEventDescription(event.description);
-        return taskId ? [taskId, event] as const : null;
-      })
-      .filter((entry): entry is readonly [string, (typeof existingTodoEvents)[number]] => Boolean(entry)),
-  );
+const existingTodoEvents = await fetchGoogleCalendarEvents(
+  googleToken.access_token,
+  microsoftTodoCalendar.id,
+);
+const existingEventsByTaskId = new Map(
+  existingTodoEvents
+    .map((event) => {
+      const taskId = extractTaskIdFromEventDescription(event.description);
+      return taskId ? [taskId, event] as const : null;
+    })
+    .filter((entry): entry is readonly [string, (typeof existingTodoEvents)[number]] => Boolean(entry)),
+);
 
-  let createdEvents = 0;
-  let updatedEvents = 0;
-  let deletedEvents = 0;
-  let unchangedEvents = 0;
-  let skippedTasksWithoutDue = 0;
-  let skippedTasksInvalidDue = 0;
+let createdEvents = 0;
+let updatedEvents = 0;
+let deletedEvents = 0;
+let unchangedEvents = 0;
+let skippedTasksWithoutDue = 0;
+let skippedTasksInvalidDue = 0;
 
-  for (const {list, tasks} of todoLists) {
-    for (const task of tasks) {
-      const existingEvent = existingEventsByTaskId.get(task.id);
+for (const {list, tasks} of todoLists) {
+  for (const task of tasks) {
+    const existingEvent = existingEventsByTaskId.get(task.id);
 
-      if (task.status === "completed") {
-        if (existingEvent) {
-          await deleteGoogleCalendarEvent(
-            googleToken.access_token,
-            microsoftTodoCalendar.id,
-            existingEvent.id,
-          );
-          existingEventsByTaskId.delete(task.id);
-          deletedEvents += 1;
-        }
-        continue;
-      }
-
-      if (!task.dueDateTime) {
-        skippedTasksWithoutDue += 1;
-        continue;
-      }
-
-      const eventTimes = buildEventTimesFromTaskDue(task);
-      if (!eventTimes) {
-        skippedTasksInvalidDue += 1;
-        console.warn(`Pomijam zadanie z nieprawidłowym terminem: ${task.title} (${task.id})`);
-        continue;
-      }
-
-      const desiredSummary = buildEventSummary(list.displayName, task.title);
-      const desiredDescription = `Microsoft To Do\nLista: ${list.displayName}\nTask ID: ${task.id}`;
+    if (task.status === "completed") {
       if (existingEvent) {
-        if (
-          !eventNeedsUpdate({
-            currentSummary: existingEvent.summary,
-            desiredSummary,
-            currentStartDateTime: existingEvent.start?.dateTime,
-            currentEndDateTime: existingEvent.end?.dateTime,
-            desiredStartDateTime: eventTimes.start.dateTime,
-            desiredEndDateTime: eventTimes.end.dateTime,
-          })
-        ) {
-          unchangedEvents += 1;
-          continue;
-        }
-
-        await updateGoogleCalendarEvent(
+        await deleteGoogleCalendarEvent(
           googleToken.access_token,
           microsoftTodoCalendar.id,
           existingEvent.id,
-          {
-            summary: desiredSummary,
-            description: desiredDescription,
-            start: eventTimes.start,
-            end: eventTimes.end,
-          },
         );
-        updatedEvents += 1;
+        existingEventsByTaskId.delete(task.id);
+        deletedEvents += 1;
+      }
+      continue;
+    }
+
+    if (!task.dueDateTime) {
+      skippedTasksWithoutDue += 1;
+      continue;
+    }
+
+    const eventTimes = buildEventTimesFromTaskDue(task);
+    if (!eventTimes) {
+      skippedTasksInvalidDue += 1;
+      console.warn(`Pomijam zadanie z nieprawidłowym terminem: ${task.title} (${task.id})`);
+      continue;
+    }
+
+    const desiredSummary = buildEventSummary(list.displayName, task.title);
+    const desiredDescription = `Microsoft To Do\nLista: ${list.displayName}\nTask ID: ${task.id}`;
+    if (existingEvent) {
+      if (
+        !eventNeedsUpdate({
+          currentSummary: existingEvent.summary,
+          desiredSummary,
+          currentStartDateTime: existingEvent.start?.dateTime,
+          currentEndDateTime: existingEvent.end?.dateTime,
+          desiredStartDateTime: eventTimes.start.dateTime,
+          desiredEndDateTime: eventTimes.end.dateTime,
+        })
+      ) {
+        unchangedEvents += 1;
         continue;
       }
 
-      await createGoogleCalendarEvent(googleToken.access_token, microsoftTodoCalendar.id, {
-        summary: desiredSummary,
-        description: desiredDescription,
-        start: eventTimes.start,
-        end: eventTimes.end,
-      });
-      existingEventsByTaskId.set(task.id, {
-        id: task.id,
-        summary: desiredSummary,
-        description: desiredDescription,
-        start: eventTimes.start,
-        end: eventTimes.end,
-      });
-      createdEvents += 1;
+      await updateGoogleCalendarEvent(
+        googleToken.access_token,
+        microsoftTodoCalendar.id,
+        existingEvent.id,
+        {
+          summary: desiredSummary,
+          description: desiredDescription,
+          start: eventTimes.start,
+          end: eventTimes.end,
+        },
+      );
+      updatedEvents += 1;
+      continue;
     }
+
+    await createGoogleCalendarEvent(googleToken.access_token, microsoftTodoCalendar.id, {
+      summary: desiredSummary,
+      description: desiredDescription,
+      start: eventTimes.start,
+      end: eventTimes.end,
+    });
+    existingEventsByTaskId.set(task.id, {
+      id: task.id,
+      summary: desiredSummary,
+      description: desiredDescription,
+      start: eventTimes.start,
+      end: eventTimes.end,
+    });
+    createdEvents += 1;
   }
+}
 
-  console.log(`Utworzono wydarzenia: ${createdEvents}`);
-  console.log(`Zaktualizowano: ${updatedEvents}`);
-  console.log(`Usunięto: ${deletedEvents}`);
-  console.log(`Bez zmian: ${unchangedEvents}`);
-  console.log(`Pominięto bez terminu: ${skippedTasksWithoutDue}`);
-  console.log(`Pominięto z błędnym terminem: ${skippedTasksInvalidDue}`);
-};
-
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+console.log(`Utworzono wydarzenia: ${createdEvents}`);
+console.log(`Zaktualizowano: ${updatedEvents}`);
+console.log(`Usunięto: ${deletedEvents}`);
+console.log(`Bez zmian: ${unchangedEvents}`);
+console.log(`Pominięto bez terminu: ${skippedTasksWithoutDue}`);
+console.log(`Pominięto z błędnym terminem: ${skippedTasksInvalidDue}`);
