@@ -48,20 +48,13 @@ const buildEventTimesFromTaskDue = (task: { dueDateTime?: { dateTime: string; ti
     return null;
   }
 
-  const startDate = new Date(task.dueDateTime.dateTime);
-  if (Number.isNaN(startDate.getTime())) {
-    return null;
-  }
-
-  const endDate = new Date(startDate.getTime() + 30 * 60 * 1000);
-
   return {
     start: {
-      dateTime: startDate.toISOString(),
+      dateTime: task.dueDateTime.dateTime,
       timeZone: task.dueDateTime.timeZone || "UTC",
     },
     end: {
-      dateTime: endDate.toISOString(),
+      dateTime: task.dueDateTime.dateTime,
       timeZone: task.dueDateTime.timeZone || "UTC",
     },
   };
