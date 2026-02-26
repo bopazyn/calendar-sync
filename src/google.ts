@@ -1,4 +1,4 @@
-import type {TokenResponse} from "./oauth.ts";
+import {delay, type TokenResponse} from "./utils.ts";
 
 type GooglePagedResponse<T> = {
   items?: T[];
@@ -110,15 +110,18 @@ export const exchangeGoogleCodeForToken = async (params: {
   return data as TokenResponse;
 };
 
-const googleGet = async <T>(path: string, accessToken: string) => {
+const googleFetch = async <T>(method: string, path: string, accessToken: string, body?: unknown | null | undefined) => {
   const maxAttempts = 5;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const res = await fetch(`https://www.googleapis.com${path}`, {
+      method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
+        ...(body === undefined ? {} : {"Content-Type": "application/json"}),
       },
+      body: JSON.stringify(body),
     });
 
     const data = await res.json();
@@ -140,11 +143,9 @@ const googleGet = async <T>(path: string, accessToken: string) => {
         ? retryAfterSeconds * 1000
         : attempt * 2000;
 
-      console.warn(
-        `Google API throttling/error (${res.status}) for ${path}. Retry ${attempt}/${maxAttempts - 1} in ${waitMs}ms.`,
-      );
+      console.warn(`Google API throttling/error (${res.status}) for ${path}. Retry ${attempt}/${maxAttempts - 1} in ${waitMs}ms.`);
 
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      await delay(waitMs);
       continue;
     }
 
@@ -154,150 +155,58 @@ const googleGet = async <T>(path: string, accessToken: string) => {
   throw new Error(`Google API request failed after retries for ${path}`);
 };
 
-const googlePost = async <T>(path: string, accessToken: string, body: unknown) => {
-  const maxAttempts = 7;
+const googleGet = async <T>(path: string, accessToken: string) =>
+  googleFetch<T>('GET', path, accessToken);
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(`https://www.googleapis.com${path}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+const googleDelete = async (path: string, accessToken: string) =>
+  googleFetch('DELETE', path, accessToken);
 
-    const data = await res.json();
-    if (res.ok) {
-      return data as T;
-    }
-
-    const googleError = data as GoogleApiErrorResponse;
-    const reasons = new Set((googleError.error?.errors ?? []).map((error) => error.reason));
-    const isRateLimited = res.status === 429 ||
-      reasons.has("rateLimitExceeded") ||
-      reasons.has("userRateLimitExceeded");
-
-    if ((isRateLimited || res.status >= 500) && attempt < maxAttempts) {
-      const retryAfterHeader = res.headers.get("retry-after");
-      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
-      const jitterMs = Math.floor(Math.random() * 300);
-      const waitMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-        ? retryAfterSeconds * 1000
-        : attempt * 2000 + jitterMs;
-
-      console.warn(
-        `Google API throttling/error (${res.status}) for ${path}. Retry ${attempt}/${maxAttempts - 1} in ${waitMs}ms.`,
-      );
-
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      continue;
-    }
-
-    throw new Error(`Google API request failed: ${res.status} ${JSON.stringify(data)}`);
-  }
-
-  throw new Error(`Google API request failed after retries for ${path}`);
-};
+const googlePost = async <T>(path: string, accessToken: string, body: unknown) =>
+  googleFetch<T>('POST', path, accessToken, body);
 
 const googlePatch = async <T>(path: string, accessToken: string, body: unknown) => {
-  const maxAttempts = 7;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(`https://www.googleapis.com${path}`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      return data as T;
-    }
-
-    const googleError = data as GoogleApiErrorResponse;
-    const reasons = new Set((googleError.error?.errors ?? []).map((error) => error.reason));
-    const isRateLimited = res.status === 429 ||
-      reasons.has("rateLimitExceeded") ||
-      reasons.has("userRateLimitExceeded");
-
-    if ((isRateLimited || res.status >= 500) && attempt < maxAttempts) {
-      const retryAfterHeader = res.headers.get("retry-after");
-      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
-      const jitterMs = Math.floor(Math.random() * 300);
-      const waitMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-        ? retryAfterSeconds * 1000
-        : attempt * 2000 + jitterMs;
-
-      console.warn(
-        `Google API throttling/error (${res.status}) for ${path}. Retry ${attempt}/${maxAttempts - 1} in ${waitMs}ms.`,
-      );
-
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      continue;
-    }
-
-    throw new Error(`Google API request failed: ${res.status} ${JSON.stringify(data)}`);
-  }
-
-  throw new Error(`Google API request failed after retries for ${path}`);
+  return googleFetch<T>('PATCH', path, accessToken, body);
 };
 
-const googleDelete = async (path: string, accessToken: string) => {
-  const maxAttempts = 7;
+export const createGoogleCalendar = (accessToken: string, summary: string) =>
+  googlePost<GoogleCalendarListEntry>(
+    "/calendar/v3/calendars",
+    accessToken,
+    {summary},
+  );
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(`https://www.googleapis.com${path}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-      },
-    });
+export const createGoogleCalendarEvent = (
+  accessToken: string,
+  calendarId: string,
+  event: GoogleCalendarInsertEvent,
+) =>
+  googlePost<GoogleCalendarEvent>(
+    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+    accessToken,
+    event,
+  );
 
-    if (res.ok) {
-      return;
-    }
+export const updateGoogleCalendarEvent = (
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+  event: GoogleCalendarUpdateEvent,
+) =>
+  googlePatch<GoogleCalendarEvent>(
+    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    accessToken,
+    event,
+  );
 
-    let data: unknown = null;
-    try {
-      data = await res.json();
-    } catch {
-      data = null;
-    }
-
-    const googleError = data as GoogleApiErrorResponse;
-    const reasons = new Set((googleError?.error?.errors ?? []).map((error) => error.reason));
-    const isRateLimited = res.status === 429 ||
-      reasons.has("rateLimitExceeded") ||
-      reasons.has("userRateLimitExceeded");
-
-    if ((isRateLimited || res.status >= 500) && attempt < maxAttempts) {
-      const retryAfterHeader = res.headers.get("retry-after");
-      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
-      const jitterMs = Math.floor(Math.random() * 300);
-      const waitMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-        ? retryAfterSeconds * 1000
-        : attempt * 2000 + jitterMs;
-
-      console.warn(
-        `Google API throttling/error (${res.status}) for ${path}. Retry ${attempt}/${maxAttempts - 1} in ${waitMs}ms.`,
-      );
-
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      continue;
-    }
-
-    throw new Error(`Google API request failed: ${res.status} ${JSON.stringify(data)}`);
-  }
-
-  throw new Error(`Google API request failed after retries for ${path}`);
-};
+export const deleteGoogleCalendarEvent = (
+  accessToken: string,
+  calendarId: string,
+  eventId: string,
+) =>
+  googleDelete(
+    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    accessToken,
+  );
 
 export const fetchGoogleCalendars = async (accessToken: string) => {
   const items: GoogleCalendarListEntry[] = [];
@@ -320,13 +229,6 @@ export const fetchGoogleCalendars = async (accessToken: string) => {
 
   return items;
 };
-
-export const createGoogleCalendar = async (accessToken: string, summary: string) =>
-  await googlePost<GoogleCalendarListEntry>(
-    "/calendar/v3/calendars",
-    accessToken,
-    {summary},
-  );
 
 export const ensureGoogleCalendar = async (accessToken: string, summary: string) => {
   const calendars = await fetchGoogleCalendars(accessToken);
@@ -361,36 +263,4 @@ export const fetchGoogleCalendarEvents = async (accessToken: string, calendarId:
   } while (pageToken);
 
   return items;
-};
-
-export const createGoogleCalendarEvent = async (
-  accessToken: string,
-  calendarId: string,
-  event: GoogleCalendarInsertEvent,
-) => await googlePost<GoogleCalendarEvent>(
-  `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-  accessToken,
-  event,
-);
-
-export const updateGoogleCalendarEvent = async (
-  accessToken: string,
-  calendarId: string,
-  eventId: string,
-  event: GoogleCalendarUpdateEvent,
-) => await googlePatch<GoogleCalendarEvent>(
-  `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-  accessToken,
-  event,
-);
-
-export const deleteGoogleCalendarEvent = async (
-  accessToken: string,
-  calendarId: string,
-  eventId: string,
-) => {
-  await googleDelete(
-    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    accessToken,
-  );
 };

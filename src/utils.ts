@@ -19,3 +19,6 @@ export const createPkce = () => {
   const challenge = toBase64Url(createHash("sha256").update(verifier).digest());
   return { verifier, challenge };
 };
+
+export const delay = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));

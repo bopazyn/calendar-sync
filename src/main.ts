@@ -14,7 +14,7 @@ import {
   exchangeMicrosoftCodeForToken,
   fetchMicrosoftTodoListsWithTasks,
 } from "./microsoft.ts";
-import {createPkce, toBase64Url} from "./oauth.ts";
+import {createPkce, toBase64Url} from "./utils.ts";
 import {z} from "zod";
 
 const configurationSchema = z.object({

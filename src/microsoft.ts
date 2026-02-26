@@ -1,4 +1,4 @@
-import type { TokenResponse } from "./oauth.ts";
+import {delay, type TokenResponse} from "./utils.ts";
 
 type GraphListResponse<T> = {
   value: T[];
@@ -82,11 +82,12 @@ export const exchangeMicrosoftCodeForToken = async (params: {
   return data as TokenResponse;
 };
 
-const graphGet = async <T>(path: string, accessToken: string) => {
+const graphFetch = async <T>(method: string, path: string, accessToken: string) => {
   const maxAttempts = 5;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+      method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
@@ -106,11 +107,9 @@ const graphGet = async <T>(path: string, accessToken: string) => {
         ? retryAfterSeconds * 1000
         : attempt * 1500;
 
-      console.warn(
-        `Graph throttling (429) for ${path}. Retry ${attempt}/${maxAttempts - 1} in ${waitMs}ms.`,
-      );
+      console.warn(`Graph throttling (429) for ${path}. Retry ${attempt}/${maxAttempts - 1} in ${waitMs}ms.`);
 
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      await delay(waitMs);
       continue;
     }
 
@@ -121,15 +120,16 @@ const graphGet = async <T>(path: string, accessToken: string) => {
 };
 
 export const fetchMicrosoftTodoListsWithTasks = async (accessToken: string) => {
-  const lists = await graphGet<GraphListResponse<TodoTaskList>>("/me/todo/lists", accessToken);
+  const lists = await graphFetch<GraphListResponse<TodoTaskList>>('GET', "/me/todo/lists", accessToken);
 
   const tasksByList: TodoListWithTasks[] = [];
   for (const list of lists.value) {
-    const tasks = await graphGet<GraphListResponse<TodoTask>>(
+    const tasks = await graphFetch<GraphListResponse<TodoTask>>(
+      'GET',
       `/me/todo/lists/${list.id}/tasks`,
       accessToken,
     );
-    tasksByList.push({ list, tasks: tasks.value });
+    tasksByList.push({list, tasks: tasks.value});
   }
 
   return tasksByList;
