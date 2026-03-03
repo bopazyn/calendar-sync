@@ -124,7 +124,10 @@ const googleFetch = async <T>(method: string, path: string, accessToken: string,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch {}
 
     if (res.ok) {
       return data as T;
