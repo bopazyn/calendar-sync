@@ -129,7 +129,7 @@ const waitForOAuthCodeWithServer = async (params: {
 
       if (!code) {
         res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
-        res.end("Callback server działa. Otwórz link logowania z konsoli.");
+        res.end("Callback server is running. Open the login link from the console.");
         return;
       }
 
@@ -149,7 +149,7 @@ const waitForOAuthCodeWithServer = async (params: {
 
       handled = true;
       res.writeHead(200, {"Content-Type": "text/plain; charset=utf-8"});
-      res.end(`${params.providerName} login successful. Wróć do konsoli.`);
+      res.end(`${params.providerName} login successful. Return to the console.`);
       server.close();
       resolve(code);
     } catch (error) {
@@ -182,7 +182,7 @@ const msAuthorizeUrl = buildMicrosoftAuthorizeUrl({
   state: msState,
 });
 
-console.log("1) Zaloguj się do Microsoft (To Do):");
+console.log("1) Sign in to Microsoft (To Do):");
 console.log(msAuthorizeUrl.toString());
 
 const msCode = await waitForOAuthCodeWithServer({
@@ -204,7 +204,7 @@ const msToken = await exchangeMicrosoftCodeForToken({
 });
 
 console.log("Microsoft token expires in (s):", msToken.expires_in);
-console.log("Pobieram listy zadań z Microsoft Graph...");
+console.log("Fetching task lists from Microsoft Graph...");
 
 const todoLists = await fetchMicrosoftTodoListsWithTasks(msToken.access_token);
 const googleScopes = "https://www.googleapis.com/auth/calendar";
@@ -219,7 +219,7 @@ const googleAuthorizeUrl = buildGoogleAuthorizeUrl({
   state: googleState,
 });
 
-console.log("\n2) Zaloguj się do Google Calendar:");
+console.log("\n2) Sign in to Google Calendar:");
 console.log(googleAuthorizeUrl.toString());
 
 const googleCode = await waitForOAuthCodeWithServer({
@@ -239,7 +239,7 @@ const googleToken = await exchangeGoogleCodeForToken({
 });
 
 console.log("Google token expires in (s):", googleToken.expires_in);
-console.log("Pobieram kalendarze i wydarzenia z Google Calendar API...");
+console.log("Fetching calendars and events from the Google Calendar API...");
 
 const microsoftTodoCalendar = await ensureGoogleCalendar(googleToken.access_token, "Microsoft TODO");
 
@@ -288,12 +288,12 @@ for (const {list, tasks} of todoLists) {
     const eventTimes = buildEventTimesFromTaskDue(task);
     if (!eventTimes) {
       skippedTasksInvalidDue += 1;
-      console.warn(`Pomijam zadanie z nieprawidłowym terminem: ${task.title} (${task.id})`);
+      console.warn(`Skipping task with invalid due date: ${task.title} (${task.id})`);
       continue;
     }
 
     const desiredSummary = buildEventSummary(list.displayName, task.title);
-    const desiredDescription = `Microsoft To Do\nLista: ${list.displayName}\nTask ID: ${task.id}`;
+    const desiredDescription = `Microsoft To Do\nList: ${list.displayName}\nTask ID: ${task.id}`;
     if (existingEvent) {
       if (
         !eventNeedsUpdate({
@@ -341,9 +341,9 @@ for (const {list, tasks} of todoLists) {
   }
 }
 
-console.log(`Utworzono wydarzenia: ${createdEvents}`);
-console.log(`Zaktualizowano: ${updatedEvents}`);
-console.log(`Usunięto: ${deletedEvents}`);
-console.log(`Bez zmian: ${unchangedEvents}`);
-console.log(`Pominięto bez terminu: ${skippedTasksWithoutDue}`);
-console.log(`Pominięto z błędnym terminem: ${skippedTasksInvalidDue}`);
+console.log(`Created events: ${createdEvents}`);
+console.log(`Updated: ${updatedEvents}`);
+console.log(`Deleted: ${deletedEvents}`);
+console.log(`Unchanged: ${unchangedEvents}`);
+console.log(`Skipped without due date: ${skippedTasksWithoutDue}`);
+console.log(`Skipped with invalid due date: ${skippedTasksInvalidDue}`);
