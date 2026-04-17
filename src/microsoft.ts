@@ -2,6 +2,7 @@ import {delay, type TokenResponse} from "./utils.ts";
 
 type GraphListResponse<T> = {
   value: T[];
+  "@odata.nextLink"?: string;
 };
 
 export type TodoTaskList = {
@@ -86,7 +87,10 @@ const graphFetch = async <T>(method: string, path: string, accessToken: string) 
   const maxAttempts = 5;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    const url = path.startsWith("http")
+      ? path
+      : `https://graph.microsoft.com/v1.0${path}`;
+    const res = await fetch(url, {
       method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -119,17 +123,29 @@ const graphFetch = async <T>(method: string, path: string, accessToken: string) 
   throw new Error(`Graph request failed after retries for ${path}`);
 };
 
+const graphFetchAllPages = async <T>(path: string, accessToken: string) => {
+  const items: T[] = [];
+  let nextPath: string | undefined = path;
+
+  while (nextPath) {
+    const page: GraphListResponse<T> = await graphFetch<GraphListResponse<T>>("GET", nextPath, accessToken);
+    items.push(...page.value);
+    nextPath = page["@odata.nextLink"];
+  }
+
+  return items;
+};
+
 export const fetchMicrosoftTodoListsWithTasks = async (accessToken: string) => {
-  const lists = await graphFetch<GraphListResponse<TodoTaskList>>('GET', "/me/todo/lists", accessToken);
+  const lists = await graphFetchAllPages<TodoTaskList>("/me/todo/lists", accessToken);
 
   const tasksByList: TodoListWithTasks[] = [];
-  for (const list of lists.value) {
-    const tasks = await graphFetch<GraphListResponse<TodoTask>>(
-      'GET',
+  for (const list of lists) {
+    const tasks = await graphFetchAllPages<TodoTask>(
       `/me/todo/lists/${list.id}/tasks`,
       accessToken,
     );
-    tasksByList.push({list, tasks: tasks.value});
+    tasksByList.push({list, tasks});
   }
 
   return tasksByList;
