@@ -214,6 +214,7 @@ export const deleteGoogleCalendarEvent = (
 export const fetchGoogleCalendars = async (accessToken: string) => {
   const items: GoogleCalendarListEntry[] = [];
   let pageToken: string | undefined;
+  let pageNumber = 1;
 
   do {
     const path = new URL("https://www.googleapis.com/calendar/v3/users/me/calendarList");
@@ -226,8 +227,12 @@ export const fetchGoogleCalendars = async (accessToken: string) => {
       accessToken,
     );
 
+    console.log(
+      `Google Calendar calendarList page ${pageNumber}: fetched ${data.items?.length ?? 0} items`,
+    );
     items.push(...(data.items ?? []));
     pageToken = data.nextPageToken;
+    pageNumber += 1;
   } while (pageToken);
 
   return items;
@@ -246,6 +251,7 @@ export const ensureGoogleCalendar = async (accessToken: string, summary: string)
 export const fetchGoogleCalendarEvents = async (accessToken: string, calendarId: string) => {
   const items: GoogleCalendarEvent[] = [];
   let pageToken: string | undefined;
+  let pageNumber = 1;
 
   do {
     const path = new URL(
@@ -261,8 +267,12 @@ export const fetchGoogleCalendarEvents = async (accessToken: string, calendarId:
       accessToken,
     );
 
+    console.log(
+      `Google Calendar events page ${pageNumber} for calendar ${calendarId}: fetched ${data.items?.length ?? 0} items`,
+    );
     items.push(...(data.items ?? []));
     pageToken = data.nextPageToken;
+    pageNumber += 1;
   } while (pageToken);
 
   return items;

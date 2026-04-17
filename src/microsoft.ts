@@ -126,11 +126,14 @@ const graphFetch = async <T>(method: string, path: string, accessToken: string) 
 const graphFetchAllPages = async <T>(path: string, accessToken: string) => {
   const items: T[] = [];
   let nextPath: string | undefined = path;
+  let pageNumber = 1;
 
   while (nextPath) {
     const page: GraphListResponse<T> = await graphFetch<GraphListResponse<T>>("GET", nextPath, accessToken);
+    console.log(`Microsoft Graph page ${pageNumber} for ${path}: fetched ${page.value.length} items`);
     items.push(...page.value);
     nextPath = page["@odata.nextLink"];
+    pageNumber += 1;
   }
 
   return items;
